@@ -1,0 +1,7 @@
+Scan the QR code and track
+It should tell whether they have access or not in Tamil. Then, it should play a welcome note in Tamil. 
+Check if the employee exists before updating.
+Update the excel sheet
+Update the excel when leaving 
+The Excel sheet should be in descending order
+The display should contain a talking face.
