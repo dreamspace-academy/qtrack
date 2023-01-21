@@ -1,77 +1,106 @@
+#Import Modules
 import cv2
-import random
-import pyttsx3
+import openpyxl
+from pyzbar import pyzbar
 from datetime import datetime
-import time
-
-# impotant variable 
-camera_id = 0
-delay = 1
-window_name = 'qTrack'
-qcd = cv2.QRCodeDetector()
-cap = cv2.VideoCapture(camera_id)
-qr_counter = 0
 
 
-# Create voice object
-def initialize_pyttsx3():
-    engine = pyttsx3.init()
-    voices = engine.getProperty('voices')
-    engine.setProperty('voice', voices[0].id)
-   
-    return engine
-# Variable for pyttsx3
-engine_say = initialize_pyttsx3()
+#Initializing
+prev_barcode_data = ""
+headers = ["No", "Date", "Staff Id", "In-Time", "Out-Time"]
+staff_data_path = "0-data/qTrack-staffs.xlsx"
+attendance_path = "1-attendance/qTrack-attendance.xlsx"
+
+#Read the Staff data excel
+def read_excel(path, column):
+    staff_ids = []
+    
+    staff_data_wb = openpyxl.load_workbook(path)
+
+    staff_data_sheet = staff_data_wb.active
+    max_row = staff_data_sheet.max_row
 
 
-# Current time return function
+    for i in range(2, max_row + 1):
+        cell = staff_data_sheet.cell(row = i, column = column)
+        staff_ids.append(str(cell.value))
+
+    return staff_ids
+
+# Get current date and time
 def get_current_time_data():
     current_date_and_time = datetime.now()
     current_time = current_date_and_time.strftime("%H:%M:%S")
     current_date = current_date_and_time.strftime("%Y-%m-%d")
-    current_hour = current_date_and_time.strftime("%H")
+    
+    return [current_time, current_date]
 
-    return [current_time, current_date, current_hour]
 
-# Current time return function
-def get_date_month_year_only():
-    current_date_and_time = datetime.now()
-    year_only = current_date_and_time.strftime("%Y")
-    month_only = current_date_and_time.strftime("%m")
-    date_only = current_date_and_time.strftime("%d")
-   
-    return [year_only,month_only, date_only]
+active_staff_ids = read_excel(staff_data_path, 2)
+existing_staff_ids = read_excel(attendance_path, 3)
+existing_counts = read_excel(attendance_path, 1)
+max_num = int(max(existing_counts)) + 1
+existing_dates = read_excel(attendance_path, 2)
+max_date = max(existing_dates)
 
-# qr scanner function 
-def qr_scanner():
-    while True:
-        ret, frame = cap.read()
 
-        if ret:
-            ret_qr, decoded_info, points, _ = qcd.detectAndDecodeMulti(frame)
-            if ret_qr:
-                for QrValue, point in zip(decoded_info, points):
-                    if QrValue:
-                    
-                        time_now, date_now, hour_now = get_current_time_data()
-                        print(time_now)
-                        print(date_now)
-                        print(hour_now)
+#Initializing the attendance excel sheet
+attendance_wb = openpyxl.load_workbook(attendance_path)
+attendance_sheet = attendance_wb.active
 
-                        print(QrValue)
-                        # time.sleep(2)
-                        color = (0, 255, 0)
+for index, header in enumerate(headers):
+    cell = attendance_sheet.cell(row = 1, column = index+1)
+    cell.value = header
 
-                            
-                        
-                    else:
-                        color = (0, 0, 255)
-                    frame = cv2.polylines(frame, [point.astype(int)], True, color, 8)
-            cv2.imshow(window_name, frame)
+cap = cv2.VideoCapture(0)
 
-        if cv2.waitKey(delay) & 0xFF == ord('q'):
-            break
+while True:
+    ret, frame = cap.read()
+    barcodes = pyzbar.decode(frame)
 
-qr_scanner()
-cv2.destroyWindow(window_name)
+    for barcode in barcodes:
+        (x, y, w, h) = barcode.rect
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        barcodeData = barcode.data.decode("utf-8")
+        barcodeType = barcode.type
+        staff_id = str(barcode.data).split("'")[1]
+        cv2.putText(frame, staff_id, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
+        if barcodeData != prev_barcode_data:
+            current_time, current_date = get_current_time_data() 
+            prev_barcode_data = barcodeData
+
+            print(staff_id)
+
+            if staff_id in active_staff_ids:
+
+                if staff_id in existing_staff_ids :
+                    for index, id in enumerate(existing_staff_ids):
+                        cell_staff = attendance_sheet.cell(row = index+2, column = 3)
+                        cell_date = attendance_sheet.cell(row = index+2, column = 2)
+                        if (cell_staff.value == staff_id) and (cell_date.value == max_date):
+                            cell_a = attendance_sheet.cell(row = index+2, column = 5)
+                            cell_a.value = current_time
+
+                else:
+                    attendance_sheet.insert_rows(idx=2)
+
+                    cell_a1 = attendance_sheet.cell(row = 2, column = 1)
+                    cell_a1.value = max_num
+                    max_num += 1
+
+                    data = [current_date, staff_id, current_time]
+
+                    for i in range(3):
+                        cell_a2 = attendance_sheet.cell(row = 2, column = i+2)
+                        cell_a2.value = data[i]
+
+                attendance_wb.save(attendance_path)
+
+    cv2.imshow("Webcam", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+    
+cap.release()
+cv2.destroyAllWindows()
